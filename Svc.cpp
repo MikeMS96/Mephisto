@@ -1,5 +1,7 @@
 #include "Ctu.h"
 
+#include<time.h>
+
 #define IX0 (ctu->cpu.reg(0))
 #define IX1 (ctu->cpu.reg(1))
 #define IX2 (ctu->cpu.reg(2))
@@ -92,8 +94,9 @@ Svc::Svc(Ctu *_ctu) : ctu(_ctu) {
 	registerSvc_ret_X0(       0x19, CancelSynchronization, (ghandle) IX0);
 	registerSvc_ret_X0(       0x1A, LockMutex, (ghandle) IX0, IX1, (ghandle) IX2);
 	registerSvc(              0x1B, UnlockMutex, IX0);
-	registerSvc(              0x1C, WaitProcessWideKeyAtomic, IX0, IX1, (ghandle) IX2, IX3);
+	registerSvc_ret_X0(       0x1C, WaitProcessWideKeyAtomic, IX0, IX1, (ghandle) IX2, IX3);
 	registerSvc_ret_X0(       0x1D, SignalProcessWideKey, IX0, IX1);
+	registerSvc_ret_X0(       0x1E, GetSystemTick);
 	registerSvc_ret_X0_X1(    0x1F, ConnectToPort, IX1);
 	registerSvc_ret_X0(       0x21, SendSyncRequest, (ghandle) IX0);
 	registerSvc_ret_X0(       0x22, SendSyncRequestEx, IX0, IX1, (ghandle) IX2);
@@ -102,6 +105,8 @@ Svc::Svc(Ctu *_ctu) : ctu(_ctu) {
 	registerSvc_ret_X0(       0x26, Break, IX0, IX1, IX2);
 	registerSvc_ret_X0(       0x27, OutputDebugString, IX0, IX1);
 	registerSvc_ret_X0_X1(    0x29, GetInfo, IX1, (ghandle) IX2, IX3);
+	registerSvc_ret_X0(       0x2C, MapPhysicalMemory, IX0, IX1);
+	registerSvc_ret_X0(       0x2D, UnmapPhysicalMemory, IX0, IX1);
 	registerSvc_ret_X0_X1_X2( 0x40, CreateSession, (ghandle) IX0, (ghandle) IX1, IX2);
 	registerSvc_ret_X0_X1(    0x41, AcceptSession, (ghandle) IX1);
 	registerSvc_ret_X0_X1(    0x43, ReplyAndReceive, IX1, IX2, (ghandle) IX3, IX4);
@@ -124,8 +129,12 @@ Svc::Svc(Ctu *_ctu) : ctu(_ctu) {
 
 tuple<guint, guint> Svc::SetHeapSize(guint size) {
 	LOG_DEBUG(Svc[0x01], "SetHeapSize 0x" LONGFMT, size);
+	if (ctu->heapsize < size) {
+		ctu->cpu.map(0xaa0000000 + ctu->heapsize, size - ctu->heapsize);
+	} else if (ctu->heapsize > size) {
+		ctu->cpu.unmap(0xaa0000000 + size, ctu->heapsize - size);
+	}
 	ctu->heapsize = size;
-	ctu->cpu.map(0xaa0000000, size);
 	return make_tuple(0, 0xaa0000000);
 }
 
@@ -153,8 +162,12 @@ guint Svc::UnmapMemory(gptr dest, gptr src, guint size) {
 typedef struct {
 	gptr begin;
 	gptr size;
-	gptr perms;
-	guint cperm;
+	uint32_t memory_type;
+	uint32_t memory_attribute;
+	uint32_t permission;
+	uint32_t device_ref_count;
+	uint32_t ipc_ref_count;
+	uint32_t padding;
 } MemInfo;
 
 tuple<guint, guint> Svc::QueryMemory(gptr meminfo, gptr pageinfo, gptr addr) {
@@ -165,15 +178,19 @@ tuple<guint, guint> Svc::QueryMemory(gptr meminfo, gptr pageinfo, gptr addr) {
 			MemInfo minfo;
 			minfo.begin = begin;
 			minfo.size = end - begin + 1;
-			minfo.perms = perm == -1 ? 0 : 3; // FREE or CODE
-			minfo.cperm = 0;
+			minfo.memory_type = perm == -1 ? 0 : 3; // FREE or CODE
+			minfo.memory_attribute = 0;
+			if(addr >= 0xaa0000000 && addr < 0xaa0000000 + ctu->heapsize) {
+				minfo.memory_type = 5; // HEAP
+			}
+			minfo.permission = 0;
 
 			if(perm != -1) {
 				auto offset = *ctu->cpu.guestptr<uint32_t>(begin + 4);
 				if(begin + offset + 4 < end && *ctu->cpu.guestptr<uint32_t>(begin + offset) == FOURCC('M', 'O', 'D', '0'))
-					minfo.cperm = 5;
+					minfo.permission = 5;
 				else
-					minfo.cperm = 3;
+					minfo.permission = 3;
 			}
 			ctu->cpu.guestptr<MemInfo>(meminfo) = minfo;
 			break;
@@ -186,7 +203,7 @@ tuple<guint, guint> Svc::QueryMemory(gptr meminfo, gptr pageinfo, gptr addr) {
 // but this makes it easier to return values from
 // libtransistor tests.
 void Svc::ExitProcess(guint exitCode) {
-	LOG_DEBUG(Svc[0x07], "ExitProcess");
+	LOG_DEBUG(Svc[0x07], "ExitProcess 0x" LONGFMT, exitCode);
 	exit((int) exitCode);
 }
 
@@ -211,6 +228,14 @@ void Svc::ExitThread() {
 
 guint Svc::SleepThread(guint ns) {
 	LOG_DEBUG(Svc[0x0B], "SleepThread 0x" LONGFMT " ns", ns);
+
+	auto thread = ctu->tm.current();
+	// Yield, at least.
+	thread->suspend([=] {
+		thread->resume([=] {
+				thread->regs.X0 = 0;
+		});
+	});
 	return 0;
 }
 
@@ -378,7 +403,7 @@ shared_ptr<Semaphore> Svc::ensureSemaphore(gptr semaAddr) {
 	return semaphores[semaAddr];
 }
 
-void Svc::WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle threadHandle, guint timeout) {
+guint Svc::WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle threadHandle, guint timeout) {
 	LOG_DEBUG(Svc[0x1C], "WaitProcessWideKeyAtomic 0x" LONGFMT " 0x" LONGFMT " 0x%x 0x" LONGFMT, mutexAddr, semaAddr, threadHandle, timeout);
 
 	auto mutex = ensureMutex(mutexAddr);
@@ -388,7 +413,7 @@ void Svc::WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle thread
 
 	if(semaphore->value() > 0) {
 		semaphore->decrement();
-		return;
+		return 0;
 	}
 
 	auto thread = ctu->getHandle<Thread>(threadHandle);
@@ -396,13 +421,14 @@ void Svc::WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle thread
 		semaphore->wait([=] {
 			semaphore->decrement();
 			thread->resume([=] {
-				LockMutex(0, mutexAddr, threadHandle);
+				thread->regs.X0 = LockMutex(0, mutexAddr, threadHandle);
 			});
 			return 1;
 		});
 	});
 
 	mutex->guestRelease();
+	return 0;
 }
 
 guint Svc::SignalProcessWideKey(gptr semaAddr, guint target) {
@@ -414,6 +440,12 @@ guint Svc::SignalProcessWideKey(gptr semaAddr, guint target) {
 	else if(target == 0xffffffff)
 		semaphore->signal();
 	return 0;
+}
+
+guint Svc::GetSystemTick() {
+	struct timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	return (((uint64_t) time.tv_sec) * 19200000) + ((((uint64_t) time.tv_nsec) * 192) / 10000);
 }
 
 tuple<guint, ghandle> Svc::ConnectToPort(guint name) {
@@ -493,20 +525,31 @@ tuple<guint, guint> Svc::GetInfo(guint id1, ghandle handle, guint id2) {
 	LOG_DEBUG(Svc[0x29], "GetInfo handle=0x%x id1=0x" LONGFMT " id2=" LONGFMT, handle, id1, id2);
 	matchpair(0, 0, 0xF);
 	matchpair(1, 0, 0xFFFFFFFF00000000);
-	matchpair(2, 0, 0x7100000000);
-	matchpair(3, 0, 0x1000000000);
-	matchpair(4, 0, 0xaa0000000);
-	matchpair(5, 0, ctu->heapsize); // Heap region size
+	matchpair(2, 0, 0xbb0000000); // map region
+	matchpair(3, 0, 0x1000000000); // size
+	matchpair(4, 0, 0xaa0000000); // heap region
+	matchpair(5, 0, ctu->heapsize); // size
 	matchpair(6, 0, 0x400000);
 	matchpair(7, 0, 0x10000);
 	matchpair(12, 0, 0x8000000);
 	matchpair(13, 0, 0x7ff8000000);
-	matchpair(14, 0, ctu->loadbase);
-	matchpair(15, 0, ctu->loadsize);
+	matchpair(14, 0, 0xbb0000000); // new map region
+	matchpair(15, 0, 0x1000000000); // size
 	matchpair(18, 0, 0x0100000000000036); // Title ID
 	matchone(11, 0);
 
-	LOG_ERROR(Svc[0x29], "Unknown getinfo");
+	return make_tuple(0xf001, 0);
+}
+
+guint Svc::MapPhysicalMemory(gptr addr, guint size) {
+	LOG_DEBUG(Svc[0x2C], "MapPhysicalMemory(0x" LONGFMT ", 0x" LONGFMT ")", addr, size);
+	ctu->cpu.map(addr, size);
+	return 0;
+}
+
+guint Svc::UnmapPhysicalMemory(gptr addr, guint size) {
+	ctu->cpu.unmap(addr, size);
+	return 0;
 }
 
 tuple<guint, guint, guint> Svc::CreateSession(ghandle clientOut, ghandle serverOut, guint unk) {

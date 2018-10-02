@@ -47,8 +47,9 @@ private:
 	guint CancelSynchronization(ghandle handle); // 0x19
 	guint LockMutex(ghandle curthread, gptr mutexAddr, ghandle reqthread); // 0x1A
 	void UnlockMutex(gptr mutexAddr); // 0x1B
-	void WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle threadHandle, guint timeout); // 0x1C
+	guint WaitProcessWideKeyAtomic(gptr mutexAddr, gptr semaAddr, ghandle threadHandle, guint timeout); // 0x1C
 	guint SignalProcessWideKey(gptr semaAddr, guint target); // 0x1D
+	guint GetSystemTick(); // 0x1E
 	tuple<guint, ghandle> ConnectToPort(guint name); // 0x1F
 	guint SendSyncRequest(ghandle handle); // 0x21
 	guint SendSyncRequestEx(gptr buf, guint size, ghandle handle); // 0x22
@@ -57,6 +58,8 @@ private:
 	guint Break(guint X0, guint X1, guint info); // 0x26
 	guint OutputDebugString(guint ptr, guint size); // 0x27
 	tuple<guint, guint> GetInfo(guint id1, ghandle handle, guint id2); // 0x29
+	guint MapPhysicalMemory(gptr addr, guint size); // 0x2C
+	guint UnmapPhysicalMemory(gptr addr, guint size); // 0x2D
 	tuple<guint, guint, guint> CreateSession(ghandle clientOut, ghandle serverOut, guint unk); // 0x40
 	tuple<guint, guint> AcceptSession(ghandle port); // 0x41
 	tuple<guint, guint> ReplyAndReceive(gptr handles, guint numHandles, ghandle replySession, guint timeout); // 0x43

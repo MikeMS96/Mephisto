@@ -36,8 +36,12 @@ void NPipe::messageAsync(shared_ptr<array<uint8_t, 0x100>> buf, function<void(ui
 	acquire();
 	client.wait([=] {
 		auto obuf = client.pop();
-		memcpy(buf->data(), obuf->data(), 0x100);
-		cb(0, false); // XXX: HANDLE RETCODES AND CLOSE
+		if (obuf != nullptr) {
+			memcpy(buf->data(), obuf->data(), 0x100);
+			cb(0, false); // XXX: HANDLE RETCODES
+		} else {
+			cb(0, true);
+		}
 		return 1;
 	});
 	server.push(buf);
@@ -170,9 +174,11 @@ uint32_t IpcService::messageSync(shared_ptr<array<uint8_t, 0x100>> buf, bool& cl
 			ret = 0x25a0b;
 			break;
 		case 4: // Normal
+		case 6: // Normal with Context
 			ret = target->dispatch(msg, resp);
 			break;
 		case 5: // Control
+		case 7: // Control with Context
 			switch(msg.cmdId) {
 			case 0: // ConvertSessionToDomain
 				LOG_DEBUG(Ipc, "ConvertSessionToDomain");
@@ -235,7 +241,7 @@ ghandle IpcService::fauxNewHandle(shared_ptr<KObject> obj) {
 }
 
 Ipc::Ipc(Ctu *_ctu) : ctu(_ctu) {
-	sm = make_shared<SmService>(ctu);
+	sm = make_shared<nn::sm::detail::IUserInterface>(ctu);
 }
 
 ghandle Ipc::ConnectToPort(string name) {

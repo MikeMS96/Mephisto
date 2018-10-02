@@ -37,7 +37,7 @@ void mmioHook(uc_engine *uc, uc_mem_type type, gptr address, uint32_t size, gptr
 			
 			break;
 		case UC_MEM_WRITE:
-			LOG_DEBUG(Cpu, "MMIO Write at " ADDRFMT " size %x data %lx", physicalAddress, size, value);
+			LOG_DEBUG(Cpu, "MMIO Write at " ADDRFMT " size %x data " LONGFMT, physicalAddress, size, value);
 			mmio->write(physicalAddress, size, value);
 			break;
 	}
@@ -120,7 +120,14 @@ void Cpu::stop() {
 bool Cpu::map(gptr addr, guint size) {
 	CHECKED(uc_mem_map(uc, addr, size, UC_PROT_ALL));
 	auto temp = new uint8_t[size];
-	memset(temp, 0, size);
+	if(ctu->initializeMemory) {
+		uint8_t val[] = "badmem!!";
+		for(size_t sz = 0; sz < size; sz++) {
+			temp[sz] = val[sz % sizeof(val)];
+		}
+	} else {
+		memset(temp, 0, size);
+	}
 	writemem(addr, temp, size);
 	delete[] temp;
 	return true;

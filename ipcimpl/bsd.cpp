@@ -14,11 +14,20 @@
   }
 */
 
+#ifdef __APPLE__
+#define fam_ntohs passthru_uint8
+#define fam_htons passthru_uint8
+__uint8_t passthru_uint8(__uint8_t a) { return a; }
+#else
+#define fam_htons htons
+#define fam_ntohs ntohs
+#endif
+
 nn::socket::sf::IClient::IClient(Ctu *_ctu) : IpcService(_ctu) {
 	passthrough = _ctu->socketsEnabled;
 }
 
-uint32_t nn::socket::sf::IClient::Accept(IN uint32_t socket, OUT int32_t& ret, OUT uint32_t& bsd_errno, OUT uint32_t& sockaddr_len, OUT sockaddr * _4, guint _4_size) {
+uint32_t nn::socket::sf::IClient::Accept(IN uint32_t socket, OUT int32_t& ret, OUT uint32_t& bsd_errno, OUT uint32_t& sockaddr_len, OUT nn::socket::sockaddr_in * _4, guint _4_size) {
 	LOG_DEBUG(IpcStubs, "Stub implementation for nn::socket::sf::IClient::accept");
 	if(passthrough) {
 		struct sockaddr *addr = (struct sockaddr *) _4;
@@ -26,18 +35,19 @@ uint32_t nn::socket::sf::IClient::Accept(IN uint32_t socket, OUT int32_t& ret, O
 		ret = ::accept(socket, addr, &size);
 		bsd_errno = errno;
 		sockaddr_len = size;
-		addr->sa_family = htons(addr->sa_family);
+		addr->sa_family = fam_htons(addr->sa_family);
 	} else {
 		ret = 888;
 		bsd_errno = 0;
 	}
 	return 0;
 }
-uint32_t nn::socket::sf::IClient::Bind(IN uint32_t socket, IN sockaddr * _1, guint _1_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
+
+uint32_t nn::socket::sf::IClient::Bind(IN uint32_t socket, IN nn::socket::sockaddr_in * _1, guint _1_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
 	LOG_DEBUG(IpcStubs, "Stub implementation for nn::socket::sf::IClient::bind");
 	if(passthrough) {
 		struct sockaddr *addr = (struct sockaddr *) _1;
-		addr->sa_family = ntohs(addr->sa_family);
+		addr->sa_family = fam_ntohs(addr->sa_family);
 		ret = ::bind(socket, addr, (uint32_t) _1_size);
 		bsd_errno = errno;
 	} else {
@@ -57,11 +67,11 @@ uint32_t nn::socket::sf::IClient::Close(IN uint32_t socket, OUT int32_t& ret, OU
 	}
 	return 0;
 }
-uint32_t nn::socket::sf::IClient::Connect(IN uint32_t socket, IN sockaddr * _1, guint _1_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
+uint32_t nn::socket::sf::IClient::Connect(IN uint32_t socket, IN nn::socket::sockaddr_in * _1, guint _1_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
 	LOG_DEBUG(IpcStubs, "Stub implementation for nn::socket::sf::IClient::connect");
 	if(passthrough) {
 		struct sockaddr *addr = (struct sockaddr *) _1;
-		addr->sa_family = ntohs(addr->sa_family); // yes, this is network byte order on the switch and host byte order on linux
+		addr->sa_family = fam_ntohs(addr->sa_family); // yes, this is network byte order on the switch and host byte order on linux
 		ret = ::connect(socket, (struct sockaddr *) addr, (socklen_t) _1_size);
 		bsd_errno = errno;
 	} else {
@@ -70,7 +80,7 @@ uint32_t nn::socket::sf::IClient::Connect(IN uint32_t socket, IN sockaddr * _1, 
 	}
 	return 0;
 }
-uint32_t nn::socket::sf::IClient::GetSockName(IN uint32_t socket, OUT int32_t& ret, OUT uint32_t& bsd_errno, OUT uint32_t& sockaddr_len, OUT sockaddr * _4, guint _4_size) {
+uint32_t nn::socket::sf::IClient::GetSockName(IN uint32_t socket, OUT int32_t& ret, OUT uint32_t& bsd_errno, OUT uint32_t& sockaddr_len, OUT nn::socket::sockaddr_in * _4, guint _4_size) {
 	LOG_DEBUG(IpcStubs, "Stub implementation for nn::socket::sf::IClient::getsockname");
 	if(passthrough) {
 		struct sockaddr *addr = (struct sockaddr *) _4;
@@ -78,7 +88,7 @@ uint32_t nn::socket::sf::IClient::GetSockName(IN uint32_t socket, OUT int32_t& r
 		ret = ::getsockname(socket, addr, &addr_len);
 		errno = bsd_errno;
 		sockaddr_len = addr_len;
-		addr->sa_family = htons(addr->sa_family);
+		addr->sa_family = fam_htons(addr->sa_family);
 	} else {
 		sockaddr_len = 0;
 		ret = 0;
@@ -119,11 +129,11 @@ uint32_t nn::socket::sf::IClient::Send(IN uint32_t socket, IN uint32_t flags, IN
 	}
 	return 0;
 }
-uint32_t nn::socket::sf::IClient::SendTo(IN uint32_t socket, IN uint32_t flags, IN int8_t * _2, guint _2_size, IN sockaddr * _3, guint _3_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
+uint32_t nn::socket::sf::IClient::SendTo(IN uint32_t socket, IN uint32_t flags, IN int8_t * _2, guint _2_size, IN nn::socket::sockaddr_in * _3, guint _3_size, OUT int32_t& ret, OUT uint32_t& bsd_errno) {
 	LOG_DEBUG(IpcStubs, "Stub implementation for nn::socket::sf::IClient::sendto");
 	if(passthrough) {
 		struct sockaddr *addr = (struct sockaddr *) _3;
-		addr->sa_family = ntohs(addr->sa_family);
+		addr->sa_family = fam_ntohs(addr->sa_family);
 		ret = (uint32_t) ::sendto(socket, _2, (size_t) _2_size, flags, (struct sockaddr *) addr, (socklen_t) _3_size);
 		bsd_errno = errno;
 	} else {

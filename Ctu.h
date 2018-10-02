@@ -47,8 +47,13 @@ const gptr TERMADDR = 1ULL << 61;
 
 #define FOURCC(a, b, c, d) (((d) << 24) | ((c) << 16) | ((b) << 8) | (a))
 
-#define ADDRFMT "%016lx"
-#define LONGFMT "%lx"
+#ifdef __APPLE__
+	#define ADDRFMT "%016llx"
+	#define LONGFMT "%llx"
+#else
+	#define ADDRFMT "%016lx"
+	#define LONGFMT "%lx"
+#endif
 
 enum LogLevel {
 	None = 0,
@@ -209,10 +214,30 @@ public:
 	gptr loadbase, loadsize;
 
 	bool socketsEnabled;
-
+	bool initializeMemory = false;
+	
 private:
 	ghandle handleId;
 	unordered_map<ghandle, shared_ptr<KObject>> handles;
 };
+
+// TODO: move this/autogenerate this
+#define VERSION_1_0_0 0
+#define VERSION_2_0_0 1
+#define VERSION_2_1_0 2
+#define VERSION_2_2_0 3
+#define VERSION_2_3_0 4
+#define VERSION_3_0_0 5
+#define VERSION_3_0_1 6
+#define VERSION_3_0_2 7
+#define VERSION_4_0_0 8
+#define VERSION_4_0_1 9
+#define VERSION_4_1_0 10
+#define VERSION_5_0_0 11
+#define VERSION_5_0_1 12
+#define VERSION_5_0_2 13
+#define VERSION_5_1_0 14
+
+#define TARGET_VERSION VERSION_5_1_0
 
 #include "IpcStubs.h"
